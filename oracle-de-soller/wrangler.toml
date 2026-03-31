@@ -1,0 +1,6 @@
+[build]
+  command = ""
+  destination = "public"
+
+[functions]
+  directory = "functions"
