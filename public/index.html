@@ -62,7 +62,7 @@
 
   /* ── HEADER ── */
   .header {
-    padding: 16px 20px 12px;
+    padding: 10px 16px 8px;
     text-align: center;
     border-bottom: 2px solid var(--ink-mid);
     position: relative;
@@ -89,10 +89,10 @@
   }
 
   .parrot-logo {
-    width: 52px;
-    height: 52px;
+    width: 40px;
+    height: 40px;
     object-fit: contain;
-    filter: drop-shadow(0 2px 4px rgba(26,14,4,0.3));
+    mix-blend-mode: multiply;
     animation: float 4s ease-in-out infinite;
   }
 
@@ -123,30 +123,13 @@
     margin-top: 2px;
   }
 
-  .lang-pills {
-    display: flex;
-    justify-content: center;
-    gap: 5px;
-    margin-top: 8px;
-    flex-wrap: wrap;
-  }
-
-  .lang-pill {
-    font-size: 0.68rem;
-    padding: 2px 8px;
-    border: 1px solid var(--parchment-deep);
-    border-radius: 12px;
-    color: var(--ink-light);
-    background: rgba(200,168,80,0.15);
-    letter-spacing: 0.06em;
-    font-family: 'Crimson Pro', serif;
-  }
+  /* lang pills removed */
 
   /* ── TOPIC PILLS ── */
   .topics {
     display: flex;
     gap: 6px;
-    padding: 10px 16px;
+    padding: 7px 12px;
     overflow-x: auto;
     flex-shrink: 0;
     background: rgba(240,228,196,0.7);
@@ -197,32 +180,32 @@
   .welcome {
     margin: auto;
     text-align: center;
-    padding: 20px;
+    padding: 12px 16px;
     animation: fadeUp 0.6s ease;
     max-width: 480px;
   }
 
   .welcome-parrot {
-    width: 80px;
-    height: 80px;
+    width: 60px;
+    height: 60px;
     object-fit: contain;
-    margin-bottom: 12px;
-    filter: drop-shadow(0 4px 8px rgba(26,14,4,0.25));
+    margin-bottom: 8px;
+    mix-blend-mode: multiply;
   }
 
   .welcome h2 {
     font-family: 'Cinzel', serif;
-    font-size: 1.2rem;
+    font-size: 1.1rem;
     color: var(--ink);
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   .welcome p {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     color: var(--ink-light);
-    line-height: 1.6;
+    line-height: 1.5;
     font-style: italic;
-    margin-bottom: 18px;
+    margin-bottom: 12px;
   }
 
   .example-grid {
@@ -358,7 +341,7 @@
 
   /* ── INPUT AREA ── */
   .input-area {
-    padding: 12px 16px 16px;
+    padding: 8px 12px 10px;
     border-top: 1px solid rgba(44,26,8,0.2);
     background: rgba(240,228,196,0.95);
     flex-shrink: 0;
@@ -419,12 +402,21 @@
     font-style: italic;
   }
 
-  /* ── DECORATIVE BORDER on desktop ── */
   @media (min-width: 740px) {
     .app {
       border-left: 1px solid rgba(44,26,8,0.15);
       border-right: 1px solid rgba(44,26,8,0.15);
     }
+    .parrot-logo { width: 52px; height: 52px; }
+    .welcome-parrot { width: 80px; height: 80px; }
+    .header { padding: 16px 20px 12px; }
+    .input-area { padding: 12px 16px 16px; }
+  }
+
+  /* Mobile viewport height fix — accounts for browser chrome */
+  @supports (height: 100dvh) {
+    html, body { height: 100dvh; }
+    .app { height: 100dvh; }
   }
 
   /* ── ANIMATIONS ── */
@@ -452,20 +444,11 @@
   <!-- Header -->
   <header class="header">
     <div class="header-inner">
-      <img src="parrot.png" alt="El lloro de la Faula" class="parrot-logo">
+      <img src="parrot.png" alt="El papagai de la Faula" class="parrot-logo">
       <div class="title-block">
         <div class="title-main">L'<span>Oracle</span> de Sóller</div>
         <div class="title-sub">Informació municipal · Sóller, Mallorca</div>
       </div>
-    </div>
-    <div class="lang-pills">
-      <span class="lang-pill">Català</span>
-      <span class="lang-pill">Español</span>
-      <span class="lang-pill">English</span>
-      <span class="lang-pill">Deutsch</span>
-      <span class="lang-pill">Français</span>
-      <span class="lang-pill">Italiano</span>
-      <span class="lang-pill">+ més</span>
     </div>
   </header>
 
@@ -485,7 +468,7 @@
     <div class="welcome" id="welcome">
       <img src="parrot.png" alt="Oracle parrot" class="welcome-parrot">
       <h2>Benvingut a l'Oracle</h2>
-      <p>El lloro de la Faula és aquí per ajudar-te.<br>
+      <p>El papagai de la Faula és aquí per ajudar-te.<br>
       Fes qualsevol pregunta en el teu idioma.</p>
       <div class="example-grid">
         <div class="example" onclick="ask(this)">🏗️ Puc posar una terrassa davant de casa meva?</div>
