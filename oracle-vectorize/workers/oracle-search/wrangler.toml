@@ -1,0 +1,26 @@
+# L'Oracle de Sóller — Cloudflare Worker config
+# Deploy: npx wrangler deploy --config workers/oracle-search/wrangler.toml
+
+name = "oracle-search"
+main = "index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "oracle-soller-index"
+
+[ai]
+binding = "AI"
+
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+[env.production]
+name = "oracle-search"
+routes = [
+  { pattern = "api.oracledesoller.com/search", zone_name = "oracledesoller.com" }
+]
