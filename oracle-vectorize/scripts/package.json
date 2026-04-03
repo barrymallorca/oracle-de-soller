@@ -1,0 +1,17 @@
+{
+  "name": "oracle-soller-ingest",
+  "version": "1.0.0",
+  "description": "L'Oracle de Sóller — Vectorize ingestion pipeline",
+  "type": "module",
+  "scripts": {
+    "ingest": "node scripts/ingest.js",
+    "ingest:dry": "DRY_RUN=true node scripts/ingest.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "googleapis": "^144.0.0",
+    "node-fetch": "^3.3.2",
+    "pdfjs-dist": "^4.4.168",
+    "tiktoken": "^1.0.15"
+  }
+}
