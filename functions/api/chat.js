@@ -1,7 +1,9 @@
 // functions/api/chat.js
-// Cloudflare Pages Function — handles all Oracle queries
+// Cloudflare Pages Function — handles all Oracle queries with Vectorize RAG
 
 import pharmacyData from '../../documents/farmacia_guardia.json';
+
+const WORKER_URL = 'https://oracle-search.barrymallorca.workers.dev';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -18,7 +20,32 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ error: 'Invalid request' }), { status: 400, headers });
     }
 
-    const systemPrompt = buildSystemPrompt(topic, pharmacyData);
+    // Get the latest user message for Vectorize search
+    const latestUserMessage = messages.filter(m => m.role === 'user').pop();
+    const query = latestUserMessage?.content || '';
+
+    // Search Vectorize for relevant document chunks
+    let vectorContext = '';
+    try {
+      const searchResponse = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, history: [] }),
+      });
+
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        // Extract sources for context (the Worker returns answer + sources)
+        if (searchData.sources && searchData.sources.length > 0) {
+          vectorContext = `\n\nINFORMACIÓ RELLEVANT DELS DOCUMENTS DE L'ORACLE:\n${searchData.answer}`;
+        }
+      }
+    } catch (searchErr) {
+      // If Vectorize search fails, continue without it
+      console.error('Vectorize search failed:', searchErr.message);
+    }
+
+    const systemPrompt = buildSystemPrompt(topic, pharmacyData, vectorContext);
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -64,7 +91,7 @@ function getTodayPharmacy(data) {
   return data.find(p => p.date === today) || null;
 }
 
-function buildSystemPrompt(topic, data) {
+function buildSystemPrompt(topic, data, vectorContext = '') {
   const todayPharmacy = getTodayPharmacy(data);
 
   const pharmacyInfo = todayPharmacy
@@ -104,18 +131,19 @@ TRANSPORT:
 - Tren Sóller–Palma: sortides de Sóller a les 6:45, 9:15, 10:45, 12:15, 14:15, 16:15, 18:15, 19:45. Tel: 971 630 130
 - Tramvia Sóller–Port: cada 30 min de 9:00 a 21:00 (temp. alta). Tel: 971 630 301
 - Autobús L210 Sóller–Palma (TIB): feiners 6:15, 7:30, 9:00, 11:00, 13:00, 15:00, 17:00, 19:00, 21:00 / caps de setmana: 8:00, 11:00, 14:00, 17:00, 20:00
-- Taxi Sóller: 971 638 484 / 637 862 498
+- Taxi Sóller: App Mallorcab
 
 INSTRUCCIONS DE RESPOSTA:
 1. Respon de manera clara, amable i útil
-2. Cita la font quan sigui rellevant
-3. Per a emergències urgents, recorda sempre el 112
-4. Si no tens informació específica, suggereix contactar l'Ajuntament (971 630 001)
-5. Respostes concises però completes — màxim 4 paràgrafs
-6. Usa **negreta** per a informació clau com telèfons, horaris, adreces
-7. No inventis mai informació
-
-${topic !== 'all' ? `FILTRE ACTIU: L'usuari ha seleccionat el tema "${topic}". Centra la resposta en aquest àmbit.` : ''}
+2. Usa la informació dels documents de l'Oracle quan sigui rellevant
+3. Cita la font quan sigui útil (nom del document)
+4. Per a emergències urgents, recorda sempre el 112
+5. Si no tens informació específica, suggereix contactar l'Ajuntament (971 630 001)
+6. Respostes concises però completes — màxim 4 paràgrafs
+7. Usa **negreta** per a informació clau com telèfons, horaris, adreces
+8. No inventis mai informació
+${vectorContext}
+${topic !== 'all' ? `\nFILTRE ACTIU: L'usuari ha seleccionat el tema "${topic}". Centra la resposta en aquest àmbit.` : ''}
 
 Ets el papagai de la Faula — portador de saviesa per a Sóller. Respon amb precisió, amabilitat i orgull local.`;
 }
