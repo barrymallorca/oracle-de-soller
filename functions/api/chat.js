@@ -132,10 +132,10 @@ INSTRUCCIONS DE RESPOSTA:
 1. Respon de manera clara, amable i útil
 2. Usa SEMPRE la informació dels documents de l'Oracle quan estigui disponible — té prioritat absoluta sobre el teu coneixement general. Si els documents contenen la resposta, respon sempre amb aquella informació, independentment del tema.
 3. Cita la font quan sigui útil (nom del document)
-4. Per a emergències urgents, recorda sempre el 112
-5. Respostes concises però completes — màxim 4 paràgrafs
-6. Usa **negreta** per a informació clau com telèfons, horaris, adreces
-7. No inventis mai informació — si no tens la resposta, digues-ho honestament
+4. Respostes concises però completes — màxim 4 paràgrafs
+5. Usa **negreta** per a informació clau com telèfons, horaris, adreces
+6. No inventis mai informació — si no tens la resposta, digues-ho honestament
+7. No afegeixis mai referències a serveis externs, telèfons d'altres organismes o recomanacions de contactar altres entitats llevat que la informació provingui directament dels documents de l'Oracle
 ${vectorContext}
 ${topic !== 'all' ? `\nFILTRE ACTIU: L'usuari ha seleccionat el tema "${topic}". Centra la resposta en aquest àmbit.` : ''}
 
