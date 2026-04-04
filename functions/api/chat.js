@@ -30,14 +30,13 @@ export async function onRequestPost(context) {
       const searchResponse = await fetch(WORKER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, history: [] }),
+        body: JSON.stringify({ query }),
       });
 
       if (searchResponse.ok) {
         const searchData = await searchResponse.json();
-        // Extract sources for context (the Worker returns answer + sources)
-        if (searchData.sources && searchData.sources.length > 0) {
-          vectorContext = `\n\nINFORMACIÓ RELLEVANT DELS DOCUMENTS DE L'ORACLE:\n${searchData.answer}`;
+        if (searchData.chunks && searchData.chunks.length > 0) {
+          vectorContext = `\n\nINFORMACIÓ RELLEVANT DELS DOCUMENTS DE L'ORACLE (usa-la per respondre):\n\n${searchData.chunks.join('\n\n---\n\n')}`;
         }
       }
     } catch (searchErr) {
@@ -130,12 +129,12 @@ TELÈFONS D'EMERGÈNCIA:
 TRANSPORT:
 - Tren Sóller–Palma: sortides de Sóller a les 6:45, 9:15, 10:45, 12:15, 14:15, 16:15, 18:15, 19:45. Tel: 971 630 130
 - Tramvia Sóller–Port: cada 30 min de 9:00 a 21:00 (temp. alta). Tel: 971 630 301
-- Autobús L210 Sóller–Palma (TIB): feiners 6:15, 7:30, 9:00, 11:00, 13:00, 15:00, 17:00, 19:00, 21:00 / caps de setmana: 8:00, 11:00, 14:00, 17:00, 20:00
+- Autobús L204 Port de Sóller–Palma (TIB): cada 30 minuts de 6:30 a 23:30
 - Taxi Sóller: App Mallorcab
 
 INSTRUCCIONS DE RESPOSTA:
 1. Respon de manera clara, amable i útil
-2. Usa la informació dels documents de l'Oracle quan sigui rellevant
+2. Usa SEMPRE la informació dels documents de l'Oracle quan estigui disponible — té prioritat sobre el teu coneixement general
 3. Cita la font quan sigui útil (nom del document)
 4. Per a emergències urgents, recorda sempre el 112
 5. Si no tens informació específica, suggereix contactar l'Ajuntament (971 630 001)
