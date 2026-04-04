@@ -28,7 +28,7 @@ export async function onRequestPost(context) {
       const searchResponse = await fetch(WORKER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query: messages.slice(-3).map(m => m.content).join(' ') }),
       });
 
       if (searchResponse.ok) {
