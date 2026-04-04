@@ -20,11 +20,9 @@ export async function onRequestPost(context) {
       return new Response(JSON.stringify({ error: 'Invalid request' }), { status: 400, headers });
     }
 
-    // Get the latest user message for Vectorize search
     const latestUserMessage = messages.filter(m => m.role === 'user').pop();
     const query = latestUserMessage?.content || '';
 
-    // Search Vectorize for relevant document chunks
     let vectorContext = '';
     try {
       const searchResponse = await fetch(WORKER_URL, {
@@ -40,7 +38,6 @@ export async function onRequestPost(context) {
         }
       }
     } catch (searchErr) {
-      // If Vectorize search fails, continue without it
       console.error('Vectorize search failed:', searchErr.message);
     }
 
@@ -123,7 +120,6 @@ TELÈFONS D'EMERGÈNCIA:
 - Policia Local Sóller: 971 630 020 (24h)
 - Centre de Salut (CAP): 971 633 943
 - Urgències mèdiques: 061
-- Ajuntament de Sóller: 971 630 001
 - Bombers: 085
 
 TRANSPORT:
@@ -134,13 +130,12 @@ TRANSPORT:
 
 INSTRUCCIONS DE RESPOSTA:
 1. Respon de manera clara, amable i útil
-2. Usa SEMPRE la informació dels documents de l'Oracle quan estigui disponible — té prioritat sobre el teu coneixement general
+2. Usa SEMPRE la informació dels documents de l'Oracle quan estigui disponible — té prioritat absoluta sobre el teu coneixement general. Si els documents contenen la resposta, respon sempre amb aquella informació, independentment del tema.
 3. Cita la font quan sigui útil (nom del document)
 4. Per a emergències urgents, recorda sempre el 112
-5. Si no tens informació específica, suggereix contactar l'Ajuntament (971 630 001)
-6. Respostes concises però completes — màxim 4 paràgrafs
-7. Usa **negreta** per a informació clau com telèfons, horaris, adreces
-8. No inventis mai informació
+5. Respostes concises però completes — màxim 4 paràgrafs
+6. Usa **negreta** per a informació clau com telèfons, horaris, adreces
+7. No inventis mai informació — si no tens la resposta, digues-ho honestament
 ${vectorContext}
 ${topic !== 'all' ? `\nFILTRE ACTIU: L'usuari ha seleccionat el tema "${topic}". Centra la resposta en aquest àmbit.` : ''}
 
