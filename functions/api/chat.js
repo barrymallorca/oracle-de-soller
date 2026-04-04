@@ -136,6 +136,7 @@ INSTRUCCIONS DE RESPOSTA:
 5. Usa **negreta** per a informació clau com telèfons, horaris, adreces
 6. No inventis mai informació — si no tens la resposta, digues-ho honestament
 7. No afegeixis mai referències a serveis externs, telèfons d'altres organismes o recomanacions de contactar altres entitats llevat que la informació provingui directament dels documents de l'Oracle
+8. No facis servir mai encapçalaments markdown (##). Usa text pla amb negreta si cal.
 ${vectorContext}
 ${topic !== 'all' ? `\nFILTRE ACTIU: L'usuari ha seleccionat el tema "${topic}". Centra la resposta en aquest àmbit.` : ''}
 
