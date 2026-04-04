@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * L'Oracle de Sóller — Vectorize Ingestion Script
+ * L'Oracle de Sóller — Vectorize Ingestion Script (v3)
  *
- * Reads all PDFs and Google Docs from a Google Drive folder,
- * chunks them, embeds via Cloudflare Workers AI (multilingual-e5-large),
+ * Reads all PDFs and Google Docs from a Google Drive folder (recursively),
+ * chunks them, embeds via Cloudflare Workers AI (bge-m3 multilingual),
  * and upserts into Cloudflare Vectorize.
  *
- * Run: node scripts/ingest.js
+ * Run: node ingest.js
  * Re-run any time docs change — existing vectors are overwritten by ID.
  */
 
@@ -17,25 +17,27 @@ import fetch from "node-fetch";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 
-const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID;         // Your Drive folder ID
-const CF_ACCOUNT_ID   = process.env.CF_ACCOUNT_ID;           // Cloudflare account ID
-const CF_API_TOKEN    = process.env.CF_API_TOKEN;             // Cloudflare API token
-const VECTORIZE_INDEX = process.env.VECTORIZE_INDEX || "oracle-soller-index";
+const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID;
+const CF_ACCOUNT_ID   = process.env.CF_ACCOUNT_ID   || process.env.CLOUDFLARE_ACCOUNT_ID;
+const CF_API_TOKEN    = process.env.CF_API_TOKEN     || process.env.CLOUDFLARE_API_TOKEN;
+const VECTORIZE_INDEX = process.env.VECTORIZE_INDEX  || "oracle-soller-index";
 
-const CHUNK_TOKENS   = 600;   // Target chunk size in tokens
-const OVERLAP_TOKENS = 150;   // Overlap between chunks
-const BATCH_SIZE     = 50;    // Vectors per Vectorize upsert batch
-const EMBED_BATCH    = 10;    // Texts per embedding API call
+const CHUNK_TOKENS   = 600;
+const OVERLAP_TOKENS = 150;
+const BATCH_SIZE     = 50;
+const EMBED_BATCH    = 10;
 
-// Cloudflare multilingual embedding model — 1024 dimensions
 const EMBED_MODEL = "@cf/baai/bge-m3";
+
+const GOOGLE_DOC_MIME = "application/vnd.google-apps.document";
+const PDF_MIME        = "application/pdf";
+const FOLDER_MIME     = "application/vnd.google-apps.folder";
 
 // ─── GOOGLE DRIVE AUTH ───────────────────────────────────────────────────────
 
@@ -47,31 +49,41 @@ async function getDriveClient() {
   return google.drive({ version: "v3", auth });
 }
 
-// ─── LIST ALL FILES IN FOLDER ────────────────────────────────────────────────
+// ─── LIST ALL FILES RECURSIVELY ──────────────────────────────────────────────
 
-async function listFiles(drive) {
+async function listFilesRecursive(drive, folderId, folderPath = "") {
   const files = [];
   let pageToken = null;
 
   do {
     const res = await drive.files.list({
-      q: `'${DRIVE_FOLDER_ID}' in parents and trashed = false`,
+      q: `'${folderId}' in parents and trashed = false`,
       fields: "nextPageToken, files(id, name, mimeType, modifiedTime)",
       pageSize: 100,
       pageToken,
     });
-    files.push(...res.data.files);
+
+    for (const file of res.data.files) {
+      if (file.mimeType === FOLDER_MIME) {
+        const subPath = folderPath ? `${folderPath}/${file.name}` : file.name;
+        console.log(`  📁 Scanning subfolder: ${subPath}`);
+        const subFiles = await listFilesRecursive(drive, file.id, subPath);
+        files.push(...subFiles);
+      } else {
+        file.folderPath = folderPath;
+        files.push(file);
+      }
+    }
+
     pageToken = res.data.nextPageToken;
   } while (pageToken);
 
-  console.log(`Found ${files.length} files in Drive folder`);
   return files;
 }
 
 // ─── EXTRACT TEXT ────────────────────────────────────────────────────────────
 
 async function extractGoogleDoc(drive, file) {
-  // Export Google Doc as plain text
   const res = await drive.files.export(
     { fileId: file.id, mimeType: "text/plain" },
     { responseType: "text" }
@@ -80,7 +92,6 @@ async function extractGoogleDoc(drive, file) {
 }
 
 async function extractPDF(drive, file) {
-  // Download PDF to temp file, then extract text
   const tmpPath = path.join(os.tmpdir(), `oracle-${file.id}.pdf`);
 
   const dest = fs.createWriteStream(tmpPath);
@@ -95,55 +106,65 @@ async function extractPDF(drive, file) {
     res.data.on("error", reject);
   });
 
-  // Extract text using pdfjs-dist
-  const data = new Uint8Array(fs.readFileSync(tmpPath));
-  const pdf = await getDocument({ data }).promise;
+  try {
+    const data = new Uint8Array(fs.readFileSync(tmpPath));
+    const pdf = await getDocument({ data, verbosity: 0 }).promise;
 
-  let text = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const pageText = content.items.map((item) => item.str).join(" ");
-    text += pageText + "\n\n";
+    let text = "";
+    for (let i = 1; i <= pdf.numPages; i++) {
+      try {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((item) => item.str).join(" ");
+        text += pageText + "\n\n";
+      } catch (pageErr) {
+        console.log(`    ⚠ Could not extract page ${i} — skipping`);
+      }
+    }
+
+    fs.unlinkSync(tmpPath);
+    return text;
+  } catch (err) {
+    console.log(`    ⚠ pdfjs failed (${err.message.slice(0, 60)}), trying fallback...`);
+    try {
+      const raw = fs.readFileSync(tmpPath, "latin1");
+      const matches = raw.match(/BT[\s\S]*?ET/g) || [];
+      const text = matches
+        .join(" ")
+        .replace(/\(([^)]+)\)/g, "$1 ")
+        .replace(/[^\x20-\x7E\n]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      fs.unlinkSync(tmpPath);
+      return text.length > 100 ? text : null;
+    } catch {
+      fs.unlinkSync(tmpPath);
+      return null;
+    }
   }
-
-  fs.unlinkSync(tmpPath);
-  return text;
 }
 
 async function extractText(drive, file) {
-  const GOOGLE_DOC = "application/vnd.google-apps.document";
-  const PDF = "application/pdf";
-
-  if (file.mimeType === GOOGLE_DOC) {
-    console.log(`  → Google Doc: ${file.name}`);
-    return await extractGoogleDoc(drive, file);
-  } else if (file.mimeType === PDF) {
-    console.log(`  → PDF: ${file.name}`);
-    return await extractPDF(drive, file);
-  } else {
-    console.log(`  ⚠ Skipping unsupported type: ${file.mimeType} (${file.name})`);
-    return null;
-  }
+  if (file.mimeType === GOOGLE_DOC_MIME) return await extractGoogleDoc(drive, file);
+  if (file.mimeType === PDF_MIME) return await extractPDF(drive, file);
+  return null;
 }
 
 // ─── CHUNKING ────────────────────────────────────────────────────────────────
 
-function detectLanguage(filename) {
-  const lower = filename.toLowerCase();
-  if (lower.startsWith("ca_")) return "ca";
-  if (lower.startsWith("es_")) return "es";
-  if (lower.startsWith("en_")) return "en";
-  return "unknown"; // Will be fine — multilingual model handles it
+function detectLanguage(filename, folderPath) {
+  const lower = (folderPath + "/" + filename).toLowerCase();
+  if (lower.startsWith("ca_") || lower.includes("/ca_")) return "ca";
+  if (lower.startsWith("es_") || lower.includes("/es_")) return "es";
+  if (lower.startsWith("en_") || lower.includes("/en_")) return "en";
+  return "unknown";
 }
 
 function detectSection(text, chunkStart) {
-  // Walk backwards from chunkStart looking for a heading-like line
   const before = text.slice(0, chunkStart);
   const lines = before.split("\n").reverse();
   for (const line of lines) {
     const trimmed = line.trim();
-    // Heading heuristics: ALL CAPS, or starts with Article/Artículo/Article/Capítol/Capítulo
     if (
       /^(article|artículo|artícle|capítol|capítulo|chapter|secció|sección|section)\b/i.test(trimmed) ||
       (trimmed.length > 5 && trimmed.length < 80 && trimmed === trimmed.toUpperCase())
@@ -155,7 +176,7 @@ function detectSection(text, chunkStart) {
 }
 
 function chunkText(text, file) {
-  const enc = encoding_for_model("gpt-4"); // tiktoken — good proxy for token counts
+  const enc = encoding_for_model("gpt-4");
   const tokens = enc.encode(text);
   const chunks = [];
   let chunkIndex = 0;
@@ -164,27 +185,26 @@ function chunkText(text, file) {
   while (start < tokens.length) {
     const end = Math.min(start + CHUNK_TOKENS, tokens.length);
     const chunkTokens = tokens.slice(start, end);
-    const chunkText = new TextDecoder().decode(enc.decode(chunkTokens));
-
-    // Estimate char offset (approximate — good enough for metadata)
+    const chunkContent = new TextDecoder().decode(enc.decode(chunkTokens));
     const charOffset = Math.floor((start / tokens.length) * text.length);
     const section = detectSection(text, charOffset);
 
     chunks.push({
       id: `${file.id}_chunk_${chunkIndex}`,
-      text: chunkText.trim(),
+      text: chunkContent.trim(),
       metadata: {
-        doc_id: file.id,
-        filename: file.name,
-        language: detectLanguage(file.name),
-        section: section || "",
+        doc_id: file.id.slice(0, 50),
+        filename: file.name.slice(0, 100),
+        folder: (file.folderPath || "").slice(0, 50),
+        language: detectLanguage(file.name, file.folderPath || ""),
+        section: (section || "").slice(0, 100),
         chunk_index: chunkIndex,
+        chunk_text: chunkContent.trim().slice(0, 300),
         modified: file.modifiedTime,
       },
     });
 
     chunkIndex++;
-    // Move forward by CHUNK_TOKENS minus OVERLAP_TOKENS
     start += CHUNK_TOKENS - OVERLAP_TOKENS;
   }
 
@@ -212,18 +232,15 @@ async function embedTexts(texts) {
   }
 
   const data = await res.json();
-  return data.result.data; // Array of float arrays
+  return data.result.data;
 }
 
-// ─── VECTORIZE UPSERT ─────────────────────────────────────────────────────────
+// ─── VECTORIZE UPSERT ────────────────────────────────────────────────────────
 
 async function upsertVectors(vectors) {
   const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/vectorize/v2/indexes/${VECTORIZE_INDEX}/upsert`;
 
-  // Vectorize expects NDJSON format
-  const ndjson = vectors
-    .map((v) => JSON.stringify(v))
-    .join("\n");
+  const ndjson = vectors.map((v) => JSON.stringify(v)).join("\n");
 
   const res = await fetch(url, {
     method: "POST",
@@ -249,47 +266,67 @@ async function main() {
   console.log("🔍 L'Oracle de Sóller — Vectorize Ingestion");
   console.log("============================================\n");
 
-  // Validate env
   const required = ["DRIVE_FOLDER_ID", "CF_ACCOUNT_ID", "CF_API_TOKEN"];
   for (const key of required) {
     if (!process.env[key]) throw new Error(`Missing env var: ${key}`);
   }
 
   const drive = await getDriveClient();
-  const files = await listFiles(drive);
+
+  console.log("📁 Scanning Drive folder (including subfolders)...\n");
+  const files = await listFilesRecursive(drive, DRIVE_FOLDER_ID);
+
+  const docFiles = files.filter(
+    (f) => f.mimeType === GOOGLE_DOC_MIME || f.mimeType === PDF_MIME
+  );
+
+  console.log(`\nFound ${docFiles.length} documents across all folders\n`);
 
   let totalChunks = 0;
-  let totalVectors = 0;
   const allChunks = [];
+  const failed = [];
 
-  // ── Extract and chunk all documents ──
-  console.log("\n📄 Extracting and chunking documents...\n");
-  for (const file of files) {
-    const text = await extractText(drive, file);
-    if (!text || text.trim().length < 50) {
-      console.log(`  ⚠ Skipping empty/short: ${file.name}`);
-      continue;
+  console.log("📄 Extracting and chunking documents...\n");
+  for (const file of docFiles) {
+    const label = file.folderPath ? `${file.folderPath}/${file.name}` : file.name;
+    const type = file.mimeType === GOOGLE_DOC_MIME ? "Google Doc" : "PDF";
+    process.stdout.write(`  [${type}] ${label}... `);
+
+    try {
+      const text = await extractText(drive, file);
+      if (!text || text.trim().length < 50) {
+        console.log("⚠ empty or too short, skipping");
+        failed.push({ name: label, reason: "empty" });
+        continue;
+      }
+
+      const chunks = chunkText(text, file);
+      console.log(`✓ ${chunks.length} chunks`);
+      allChunks.push(...chunks);
+      totalChunks += chunks.length;
+    } catch (err) {
+      console.log(`❌ ${err.message.slice(0, 80)}`);
+      failed.push({ name: label, reason: err.message.slice(0, 80) });
     }
+  }
 
-    const chunks = chunkText(text, file);
-    console.log(`  ✓ ${file.name} → ${chunks.length} chunks`);
-    allChunks.push(...chunks);
-    totalChunks += chunks.length;
+  if (allChunks.length === 0) {
+    console.log("\n❌ No chunks to embed. Check your documents and try again.");
+    return;
   }
 
   console.log(`\n📦 Total chunks to embed: ${totalChunks}`);
 
-  // ── Embed in batches ──
   console.log("\n🔢 Embedding chunks...\n");
   const vectors = [];
 
   for (let i = 0; i < allChunks.length; i += EMBED_BATCH) {
     const batch = allChunks.slice(i, i + EMBED_BATCH);
-    const texts = batch.map((c) => c.text);
+    process.stdout.write(
+      `  ${i + 1}–${Math.min(i + EMBED_BATCH, allChunks.length)} of ${allChunks.length}... `
+    );
 
-    process.stdout.write(`  Embedding ${i + 1}–${Math.min(i + EMBED_BATCH, allChunks.length)} of ${allChunks.length}...`);
-
-    const embeddings = await embedTexts(texts);
+    const embeddings = await embedTexts(batch.map((c) => c.text));
 
     for (let j = 0; j < batch.length; j++) {
       vectors.push({
@@ -299,27 +336,34 @@ async function main() {
       });
     }
 
-    console.log(" ✓");
-
-    // Small delay to avoid rate limits
+    console.log("✓");
     if (i + EMBED_BATCH < allChunks.length) {
       await new Promise((r) => setTimeout(r, 200));
     }
   }
 
-  // ── Upsert to Vectorize ──
   console.log("\n⬆️  Upserting to Vectorize...\n");
+  let totalVectors = 0;
 
   for (let i = 0; i < vectors.length; i += BATCH_SIZE) {
     const batch = vectors.slice(i, i + BATCH_SIZE);
-    process.stdout.write(`  Upserting ${i + 1}–${Math.min(i + BATCH_SIZE, vectors.length)} of ${vectors.length}...`);
+    process.stdout.write(
+      `  ${i + 1}–${Math.min(i + BATCH_SIZE, vectors.length)} of ${vectors.length}... `
+    );
     const result = await upsertVectors(batch);
     totalVectors += result.count || batch.length;
-    console.log(" ✓");
+    console.log("✓");
   }
 
   console.log(`\n✅ Done! ${totalVectors} vectors upserted to '${VECTORIZE_INDEX}'`);
-  console.log(`   ${files.length} documents → ${totalChunks} chunks → ${totalVectors} vectors\n`);
+  console.log(`   ${docFiles.length} documents → ${totalChunks} chunks → ${totalVectors} vectors`);
+
+  if (failed.length > 0) {
+    console.log(`\n⚠️  ${failed.length} document(s) could not be processed:`);
+    failed.forEach((f) => console.log(`   - ${f.name}: ${f.reason}`));
+  }
+
+  console.log("");
 }
 
 main().catch((err) => {
