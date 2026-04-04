@@ -11,9 +11,9 @@ const EMBED_MODEL    = "@cf/baai/bge-m3";
 const TOP_K          = 5;
 
 function corsHeaders(origin) {
-  const allowed = origin === ALLOWED_ORIGIN || origin === "http://localhost:3000";
+  const allowed = origin === ALLOWED_ORIGIN || origin === "http://localhost:3000" || origin === "";
   return {
-    "Access-Control-Allow-Origin": allowed ? origin : ALLOWED_ORIGIN,
+    "Access-Control-Allow-Origin": allowed ? (origin || ALLOWED_ORIGIN) : ALLOWED_ORIGIN,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
@@ -36,6 +36,12 @@ export default {
 
     if (request.method !== "POST") {
       return withCors(new Response("Method not allowed", { status: 405 }), origin);
+    }
+
+    // Allow server-to-server calls from Pages Functions (no origin header)
+    // Only block requests from unknown browser origins
+    if (origin && origin !== ALLOWED_ORIGIN && origin !== "http://localhost:3000") {
+      return new Response("Forbidden", { status: 403 });
     }
 
     let query;
